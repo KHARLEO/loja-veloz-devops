@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Service
+metadata: {name: db, namespace: loja-veloz}
+spec:
+  selector: {app: db}
+  ports: [{port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db, namespace: loja-veloz}
+spec:
+  serviceName: db
+  replicas: 1
+  selector: {matchLabels: {app: db}}
+  template:
+    metadata: {labels: {app: db}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, fsGroup: 70, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: db
+          image: postgres:16-alpine
+          ports: [{containerPort: 5432}]
+          env:
+            - {name: POSTGRES_DB, value: veloz}
+            - {name: POSTGRES_USER, value: veloz}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: veloz-db, key: password}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          volumeMounts: [{name: pgdata, mountPath: /var/lib/postgresql/data}, {name: initdb, mountPath: /docker-entrypoint-initdb.d, readOnly: true}]
+          readinessProbe: {exec: {command: ["pg_isready", "-h", "127.0.0.1", "-U", "veloz", "-d", "veloz"]}, periodSeconds: 5}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 512Mi}}
+      volumes:
+        - name: initdb
+          configMap: {name: veloz-init-sql}
+  volumeClaimTemplates:
+    - metadata: {name: pgdata}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}
+---
+# ConfigMap SQL criado com comando do README (não embutir banco no app).

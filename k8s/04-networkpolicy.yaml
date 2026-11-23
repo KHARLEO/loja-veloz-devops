@@ -1,0 +1,13 @@
+# Política mínima: entrada no banco apenas a partir dos serviços de dados.
+# O CNI do cluster precisa suportar NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: db-ingress, namespace: loja-veloz}
+spec:
+  podSelector: {matchLabels: {app: db}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions: [{key: app, operator: In, values: [pedidos, estoque]}]
+      ports: [{protocol: TCP, port: 5432}]

@@ -1,0 +1,63 @@
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file: .env
+  networks: [backend]
+  restart: unless-stopped
+  security_opt: [no-new-privileges:true]
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-veloz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-veloz}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  estoque:
+    <<: *app
+    build: {context: ., args: {SERVICE: estoque}}
+    environment:
+      SERVICE: estoque
+      DATABASE_URL: postgresql://${POSTGRES_USER:-veloz}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-veloz}
+    depends_on: {db: {condition: service_healthy}}
+  pagamentos:
+    <<: *app
+    build: {context: ., args: {SERVICE: pagamentos}}
+    environment: {SERVICE: pagamentos}
+  pedidos:
+    <<: *app
+    build: {context: ., args: {SERVICE: pedidos}}
+    environment:
+      SERVICE: pedidos
+      DATABASE_URL: postgresql://${POSTGRES_USER:-veloz}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-veloz}
+      ESTOQUE_URL: http://estoque:8080
+      PAGAMENTOS_URL: http://pagamentos:8080
+    depends_on:
+      db: {condition: service_healthy}
+      estoque: {condition: service_started}
+      pagamentos: {condition: service_started}
+  gateway:
+    <<: *app
+    build: {context: ., args: {SERVICE: gateway}}
+    environment:
+      SERVICE: gateway
+      PEDIDOS_URL: http://pedidos:8080
+      ESTOQUE_URL: http://estoque:8080
+    ports: ["8080:8080"]
+    depends_on:
+      pedidos: {condition: service_started}
+volumes:
+  pgdata:
+networks:
+  backend:
+    driver: bridge
